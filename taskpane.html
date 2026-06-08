@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Email Triage</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f8f7f5;
+      --surface: #ffffff;
+      --surface2: #f1efe9;
+      --border: #e2ddd6;
+      --text: #1a1916;
+      --text2: #6b675e;
+      --text3: #a09b91;
+      --urgent: #c0392b;
+      --urgent-bg: #fdf0ef;
+      --urgent-border: #f5c6c2;
+      --action: #1a5fa8;
+      --action-bg: #eff5fc;
+      --action-border: #bcd4f0;
+      --fyi: #0e7a5a;
+      --fyi-bg: #eef8f4;
+      --fyi-border: #b4e0d1;
+      --news: #6b675e;
+      --news-bg: #f4f2ee;
+      --news-border: #d6d2cc;
+      --accent: #1a5fa8;
+      --radius: 8px;
+      --radius-lg: 12px;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-row { display: flex; align-items: center; justify-content: space-between; }
+    .header h1 {
+      font-size: 15px; font-weight: 600; color: var(--text);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .logo-dot {
+      width: 22px; height: 22px; border-radius: 6px;
+      background: var(--accent); display: inline-flex;
+      align-items: center; justify-content: center;
+    }
+    .logo-dot svg { width: 13px; height: 13px; fill: white; }
+    .btn-refresh {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px; font-weight: 500;
+      color: var(--text2); background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 10px; cursor: pointer; transition: all 0.15s;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .btn-refresh:hover { background: var(--border); }
+    .btn-refresh svg { width: 13px; height: 13px; }
+
+    /* ── Metrics ── */
+    .metrics {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; padding: 14px 14px 8px;
+    }
+    .metric {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px 12px;
+    }
+    .metric .num { font-size: 22px; font-weight: 600; }
+    .metric .lbl { font-size: 11px; color: var(--text3); margin-top: 1px; letter-spacing: 0.3px; }
+    .metric.urgent .num { color: var(--urgent); }
+    .metric.action .num { color: var(--action); }
+
+    /* ── Filters ── */
+    .filters {
+      display: flex; gap: 6px; padding: 4px 14px 10px;
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .filters::-webkit-scrollbar { display: none; }
+    .filter {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px; font-weight: 500; white-space: nowrap;
+      padding: 4px 10px; border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface); color: var(--text2);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .filter.active {
+      background: var(--text); color: white; border-color: var(--text);
+    }
+
+    /* ── Email list ── */
+    .email-list { padding: 0 14px 80px; display: flex; flex-direction: column; gap: 7px; }
+
+    .email-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 11px 13px;
+      cursor: pointer;
+      transition: box-shadow 0.15s, border-color 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+    .email-card::before {
+      content: '';
+      position: absolute; left: 0; top: 0; bottom: 0;
+      width: 3px;
+    }
+    .email-card.urgent::before { background: var(--urgent); }
+    .email-card.action::before { background: var(--action); }
+    .email-card.fyi::before { background: var(--fyi); }
+    .email-card.newsletter::before { background: var(--news); }
+    .email-card:hover { border-color: #c8c4bc; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+
+    .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .sender { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .email-time { font-size: 11px; color: var(--text3); white-space: nowrap; }
+
+    .badge {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.4px;
+      text-transform: uppercase; padding: 2px 7px;
+      border-radius: 4px; white-space: nowrap;
+    }
+    .badge.urgent { background: var(--urgent-bg); color: var(--urgent); border: 1px solid var(--urgent-border); }
+    .badge.action { background: var(--action-bg); color: var(--action); border: 1px solid var(--action-border); }
+    .badge.fyi { background: var(--fyi-bg); color: var(--fyi); border: 1px solid var(--fyi-border); }
+    .badge.newsletter { background: var(--news-bg); color: var(--news); border: 1px solid var(--news-border); }
+
+    .subject { font-size: 12px; color: var(--text2); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .summary { font-size: 12px; color: var(--text3); line-height: 1.45; }
+
+    /* ── State screens ── */
+    .state-screen {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 40px 20px; text-align: center; gap: 12px;
+    }
+    .state-screen .icon { font-size: 32px; }
+    .state-screen p { font-size: 13px; color: var(--text2); max-width: 220px; line-height: 1.5; }
+    .btn-load {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px; font-weight: 600;
+      background: var(--accent); color: white;
+      border: none; border-radius: var(--radius);
+      padding: 10px 20px; cursor: pointer;
+      transition: opacity 0.15s; margin-top: 4px;
+    }
+    .btn-load:hover { opacity: 0.88; }
+    .btn-load:disabled { opacity: 0.5; cursor: not-allowed; }
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Bottom CTA ── */
+    .bottom-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--surface); border-top: 1px solid var(--border);
+      padding: 10px 14px;
+      display: none;
+    }
+    .bottom-bar.visible { display: block; }
+    .btn-full {
+      font-family: 'DM Sans', sans-serif;
+      width: 100%; font-size: 13px; font-weight: 600;
+      background: var(--accent); color: white;
+      border: none; border-radius: var(--radius);
+      padding: 10px; cursor: pointer; transition: opacity 0.15s;
+    }
+    .btn-full:hover { opacity: 0.88; }
+
+    /* ── Current email banner ── */
+    .current-banner {
+      background: linear-gradient(135deg, #eff5fc 0%, #e8f0fb 100%);
+      border: 1px solid var(--action-border);
+      border-radius: var(--radius); margin: 10px 14px 6px;
+      padding: 10px 12px;
+      display: none;
+    }
+    .current-banner.visible { display: block; }
+    .current-banner .label { font-size: 10px; font-weight: 600; color: var(--action); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+    .current-banner .current-subject { font-size: 13px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .current-banner .current-summary { font-size: 12px; color: var(--text2); margin-top: 3px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-row">
+    <h1>
+      <span class="logo-dot">
+        <svg viewBox="0 0 16 16"><path d="M8 1L1 5v6l7 4 7-4V5L8 1zm0 1.8l5 2.85v4.7L8 13.2 3 10.35V5.65L8 2.8z"/></svg>
+      </span>
+      AI Email Triage
+    </h1>
+    <button class="btn-refresh" id="refreshBtn" onclick="loadEmails()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.2"/><path d="M11 2l2.5 2.7L11 7"/></svg>
+      Refresh
+    </button>
+  </div>
+</div>
+
+<!-- Current email context -->
+<div class="current-banner" id="currentBanner">
+  <div class="label">Current email</div>
+  <div class="current-subject" id="currentSubject"></div>
+  <div class="current-summary" id="currentSummary">Analyzing…</div>
+</div>
+
+<!-- Metrics -->
+<div class="metrics" id="metricsSection" style="display:none;">
+  <div class="metric">
+    <div class="num" id="mTotal">—</div>
+    <div class="lbl">emails fetched</div>
+  </div>
+  <div class="metric urgent">
+    <div class="num" id="mUrgent">—</div>
+    <div class="lbl">urgent</div>
+  </div>
+  <div class="metric action">
+    <div class="num" id="mAction">—</div>
+    <div class="lbl">need reply</div>
+  </div>
+  <div class="metric">
+    <div class="num" id="mFyi">—</div>
+    <div class="lbl">FYI / info</div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filters" id="filtersSection" style="display:none;">
+  <button class="filter active" onclick="setFilter('all',this)">All</button>
+  <button class="filter" onclick="setFilter('urgent',this)">🔴 Urgent</button>
+  <button class="filter" onclick="setFilter('action',this)">🔵 Reply</button>
+  <button class="filter" onclick="setFilter('fyi',this)">🟢 FYI</button>
+  <button class="filter" onclick="setFilter('newsletter',this)">⚪ Newsletter</button>
+</div>
+
+<!-- Email list / state -->
+<div id="mainContent">
+  <div class="state-screen" id="welcomeScreen">
+    <div class="icon">📬</div>
+    <p>Fetch your latest emails and let AI sort, categorize, and summarize them instantly.</p>
+    <button class="btn-load" id="loadBtn" onclick="loadEmails()">Triage my inbox</button>
+  </div>
+</div>
+
+<div class="bottom-bar" id="bottomBar">
+  <button class="btn-full" onclick="loadEmails()">↻ Re-triage inbox</button>
+</div>
+
+<script>
+  let allEmails = [];
+  let activeFilter = 'all';
+
+  Office.onReady(function(info) {
+    if (info.host === Office.HostType.Outlook) {
+      showCurrentEmailContext();
+    }
+  });
+
+  function showCurrentEmailContext() {
+    try {
+      const item = Office.context.mailbox.item;
+      if (!item) return;
+      const subj = item.subject || '(no subject)';
+      document.getElementById('currentSubject').textContent = subj;
+      document.getElementById('currentBanner').classList.add('visible');
+      analyzeCurrentEmail(item);
+    } catch(e) {}
+  }
+
+  async function analyzeCurrentEmail(item) {
+    try {
+      const body = await new Promise((res, rej) => {
+        item.body.getAsync(Office.CoercionType.Text, r => {
+          if (r.status === Office.AsyncResultStatus.Succeeded) res(r.value);
+          else rej(r.error);
+        });
+      });
+      const preview = body.slice(0, 400).replace(/\s+/g, ' ');
+      const from = item.from ? (item.from.displayName || item.from.emailAddress) : 'Unknown';
+
+      const resp = await callClaude(
+        `Email from: ${from}\nSubject: ${item.subject}\nPreview: ${preview}\n\nIn one sentence (max 12 words), summarize what this email is about and what action is needed (if any). Be direct.`,
+        'You are a concise email assistant. Reply with one sentence only, no preamble.'
+      );
+      document.getElementById('currentSummary').textContent = resp;
+    } catch(e) {
+      document.getElementById('currentSummary').textContent = 'Could not analyze this email.';
+    }
+  }
+
+  async function callClaude(userMsg, systemMsg) {
+    const body = { model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: userMsg }] };
+    if (systemMsg) body.system = systemMsg;
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    return d.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  }
+
+  async function loadEmails() {
+    const btn = document.getElementById('loadBtn');
+    const refresh = document.getElementById('refreshBtn');
+    if (btn) btn.disabled = true;
+    if (refresh) refresh.disabled = true;
+
+    document.getElementById('metricsSection').style.display = 'none';
+    document.getElementById('filtersSection').style.display = 'none';
+    document.getElementById('bottomBar').classList.remove('visible');
+
+    document.getElementById('mainContent').innerHTML = `
+      <div class="state-screen">
+        <div class="spinner"></div>
+        <p>Fetching emails from your inbox…</p>
+      </div>`;
+
+    try {
+      // Step 1: get recent emails via Office JS
+      const emails = await getInboxEmails();
+
+      document.getElementById('mainContent').innerHTML = `
+        <div class="state-screen">
+          <div class="spinner"></div>
+          <p>AI is categorizing ${emails.length} emails…</p>
+        </div>`;
+
+      // Step 2: AI triage
+      const prompt = `Triage these ${emails.length} emails. For each return a JSON object with:
+- id: number (same as input)
+- sender: display name (short)
+- subject: subject (max 55 chars)
+- time: human-friendly time like "2h ago", "Yesterday", "Mon 9am"
+- category: one of "urgent", "action", "fyi", "newsletter"
+- summary: one sentence max 14 words explaining what it is and what to do
+
+Categories: urgent=time-sensitive/needs immediate attention, action=needs reply or decision (not urgent), fyi=informational only, newsletter=marketing/automated/promo.
+
+Emails:
+${JSON.stringify(emails)}
+
+Return ONLY a valid JSON array. No markdown, no backticks, no explanation.`;
+
+      const raw = await callClaude(prompt, 'You return ONLY valid JSON arrays. No markdown, no explanation, no preamble.');
+      const clean = raw.replace(/```json|```/g, '').trim();
+      allEmails = JSON.parse(clean);
+
+      updateMetrics();
+      document.getElementById('metricsSection').style.display = 'grid';
+      document.getElementById('filtersSection').style.display = 'flex';
+      document.getElementById('welcomeScreen') && (document.getElementById('welcomeScreen').style.display = 'none');
+      document.getElementById('bottomBar').classList.add('visible');
+      activeFilter = 'all';
+      document.querySelectorAll('.filter').forEach(f => f.classList.remove('active'));
+      document.querySelector('.filter').classList.add('active');
+      renderEmails();
+
+    } catch(e) {
+      document.getElementById('mainContent').innerHTML = `
+        <div class="state-screen">
+          <div class="icon">⚠️</div>
+          <p>Something went wrong: ${e.message}</p>
+          <button class="btn-load" onclick="loadEmails()">Try again</button>
+        </div>`;
+    }
+    if (refresh) refresh.disabled = false;
+  }
+
+  async function getInboxEmails() {
+    return new Promise((resolve, reject) => {
+      try {
+        Office.context.mailbox.getCallbackTokenAsync({ isRest: true }, function(tokenResult) {
+          if (tokenResult.status !== Office.AsyncResultStatus.Succeeded) {
+            reject(new Error('Could not get auth token'));
+            return;
+          }
+          const token = tokenResult.value;
+          const restUrl = Office.context.mailbox.restUrl || 'https://outlook.office.com';
+          fetch(`${restUrl}/api/v2.0/me/mailfolders/inbox/messages?$top=25&$select=Subject,From,ReceivedDateTime,BodyPreview&$orderby=ReceivedDateTime desc`, {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
+          })
+          .then(r => r.json())
+          .then(data => {
+            const emails = (data.value || []).map((m, i) => ({
+              id: i,
+              from: m.From?.EmailAddress?.Name || m.From?.EmailAddress?.Address || 'Unknown',
+              subject: m.Subject || '(no subject)',
+              receivedAt: m.ReceivedDateTime,
+              preview: (m.BodyPreview || '').slice(0, 200)
+            }));
+            resolve(emails);
+          })
+          .catch(reject);
+        });
+      } catch(e) { reject(e); }
+    });
+  }
+
+  function updateMetrics() {
+    document.getElementById('mTotal').textContent = allEmails.length;
+    document.getElementById('mUrgent').textContent = allEmails.filter(e => e.category === 'urgent').length;
+    document.getElementById('mAction').textContent = allEmails.filter(e => e.category === 'action').length;
+    document.getElementById('mFyi').textContent = allEmails.filter(e => e.category === 'fyi').length;
+  }
+
+  function setFilter(f, btn) {
+    activeFilter = f;
+    document.querySelectorAll('.filter').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderEmails();
+  }
+
+  function renderEmails() {
+    const filtered = activeFilter === 'all' ? allEmails : allEmails.filter(e => e.category === activeFilter);
+    const labels = { urgent: 'Urgent', action: 'Needs reply', fyi: 'FYI', newsletter: 'Newsletter' };
+    const html = filtered.length === 0
+      ? '<div class="state-screen"><div class="icon">✅</div><p>No emails in this category.</p></div>'
+      : filtered.map(e => `
+        <div class="email-card ${e.category}">
+          <div class="card-top">
+            <span class="sender">${e.sender}</span>
+            <span class="badge ${e.category}">${labels[e.category]||e.category}</span>
+            <span class="email-time">${e.time}</span>
+          </div>
+          <div class="subject">${e.subject}</div>
+          <div class="summary">${e.summary}</div>
+        </div>`).join('');
+    document.getElementById('mainContent').innerHTML = `<div class="email-list">${html}</div>`;
+  }
+</script>
+</body>
+</html>
